@@ -26,7 +26,7 @@ accept them, filter them by prefix-list, and show them arriving.
   naming neighbours, so a cluster's nodes can arrive and leave on their own.
 - RFC 8212 in effect — nothing is advertised or accepted without an explicit
   route-map, so a mistake is silence rather than a leak.
-- Fourteen checks in `check.sh`, each a claim with a measurement behind it;
+- Seventeen rows from `check.sh`, each a claim with a measurement behind it;
   the exit status is the FAIL count, so CI needs no parsing.
 - 103 unit tests (54 Go for the dashboard, 8 Go for the agent, 41 for the
   browser UI) that need no lab, no registry and no browser.
@@ -235,9 +235,16 @@ it has no socket to hand anyone.
 
 The header is the point of the whole thing.
 
+![the dashboard, photographed by CI on a clean runner](https://raw.githubusercontent.com/ephico2real2/bgp-fabric/ci-captures/2026-09-23T2058Z_run35919205129-1/dashboard-steady.png)
+
 ```text
-routers 4/4 · fabric sessions 6/6 · server sessions 0/0 · age 0s · live
+poll 2s   routers 4/4   fabric sessions 6/6 · server sessions 0/0   age 0s   ● live
 ```
+
+That is not a mock-up: it is the page as a GitHub runner saw it in
+[run 35919205129](https://github.com/ephico2real2/bgp-fabric/actions/runs/35919205129),
+built from commit `ee30b73`, which is the number the header itself is
+reporting on the right.
 
 Every number there is a fact about the **network**. `routers 4/4` means four
 agents answered this poll. `fabric sessions 6/6` means six eBGP sessions are
@@ -320,6 +327,17 @@ then builds both images, reads the OCI labels back off them, brings the whole
 fabric up on the runner's own engine, runs `check.sh`, photographs the
 dashboard and publishes the pictures to a `ci-captures` branch. A pull request
 without registry credentials skips the publish and still goes green.
+
+The first run of it, on a clean `ubuntu-24.04` runner with no Colima anywhere:
+
+```text
+fabric-up: sessions Established after 1s
+fabric-up: dashboard ready after 0s (routers=4/4 sessions=6/6 external=0)
+PASS   sessions signed on the wire          md5-option packets=10/10 on 10.200.1.3
+PASS   a wrong password breaks the session  Established→Idle, down in 15/15 samples; restored
+PASS   kernel has CONFIG_TCP_MD5SIG         CONFIG_TCP_MD5SIG=y kernel=6.17.0-1022-azure
+bgp-fabric check: 0 FAIL
+```
 
 ## Licence
 
