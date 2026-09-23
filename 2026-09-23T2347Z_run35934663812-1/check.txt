@@ -1,0 +1,22 @@
+
+== bgp-fabric — four FRR routers, TCP MD5 enforced
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   four routers running                                                   running=4/4                                          R1 — edge spine leaf1 leaf2 running
+  PASS   six fabric sessions Established                                        6/6 Established                                      R1 — leaf1–spine, leaf2–spine, spine–edge, both directions
+  PASS   client0 ping 10.200.255.1                                              rc=0                                                 R1 — loopback reachable from client0
+  PASS   client0 ping 10.200.255.2                                              rc=0                                                 R1 — loopback reachable from client0
+  PASS   client0 ping 10.200.255.11                                             rc=0                                                 R1 — loopback reachable from client0
+  PASS   client0 ping 10.200.255.12                                             rc=0                                                 R1 — loopback reachable from client0
+  PASS   10.200.100.0/24 in leaf1 via spine                                     via 10.200.1.3                                       R1 — wan learned via 10.200.1.3
+  PASS   ECMP maximum-paths on spine and leaves                                 maximum-paths 8                                      R5 — maximum-paths 8
+  PASS   SERVERS listen 172.20.0.0/17 on both leaves                            leaf1+leaf2                                          P4 — Colima node LAN only; the Cilium lab /17 is not here
+  PASS   per-cluster VIP prefix-lists                                           EG/CILIUM POC1/POC2/ANYCAST ge 32 le 32              R8 — prefix-list + as-path per cluster
+  PASS   RFC 8212 in effect                                                     traditional profile, ebgp-requires-policy on         §8 row 5 — traditional defaults, explicit route-maps
+  PASS   sessions signed on the wire                                            md5-option packets=10/10 on 10.200.1.3               §8 row 3 — TCP-MD5 option on every leaf1–spine segment
+  PASS   a wrong password breaks the session                                    Established→Idle, down in 15/15 samples; restored Established §8 row 3 — mismatch keeps the session down; restore required
+  PASS   kernel has CONFIG_TCP_MD5SIG                                           CONFIG_TCP_MD5SIG=y kernel=6.17.0-1022-azure         §8 row 3 — kernel CONFIG_TCP_MD5SIG=y
+  PASS   dashboard reachable, 4/4 routers polled                                routers=4/4 sessions=6/6 external=0                  D8 — /api/state from 127.0.0.1:8098
+  PASS   dashboard sessions agree with vtysh                                    6/6                                                  D17 — state Established matches fabric-bgp-summary
+  PASS   agent on mgmt only, show-only                                          no ports; ;reboot=404 summary=200; client0_rc=28,28,28,28 D8 — agent on 10.200.200.0/24, show-only
+
+bgp-fabric check: 0 FAIL
