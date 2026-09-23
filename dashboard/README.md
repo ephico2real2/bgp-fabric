@@ -1,4 +1,4 @@
-# bgp-dashboard
+# bgp-fabric-dashboard
 
 Live topology of the company fabric. Idea from Gergő Vadász,
 [Make BGP visible: a live topology dashboard with Containerlab](https://gergovadasz.hu/make-bgp-visible-a-live-topology-dashboard-with-containerlab/)

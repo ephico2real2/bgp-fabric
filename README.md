@@ -14,8 +14,9 @@ accept them, filter them by prefix-list, and show them arriving.
 
 ## What you get
 
-- Four FRR 10.7.1 routers — `edge`, `spine`, `leaf1`, `leaf2` — in three eBGP
-  autonomous systems plus the edge, converging in seconds from `docker compose up`.
+- Four FRR 10.7.1 routers — `edge`, `spine`, `leaf1`, `leaf2` — in four
+  autonomous systems (65000, 65100, 65101, 65102), converging from cold in
+  seconds.
 - Six fabric sessions, each **signed with TCP MD5**, proven three ways: the
   option on the wire, the kernel's `TcpExtTCPMD5*` counters, and a deliberate
   wrong password that takes one session down and leaves the other five up.
@@ -25,9 +26,9 @@ accept them, filter them by prefix-list, and show them arriving.
   naming neighbours, so a cluster's nodes can arrive and leave on their own.
 - RFC 8212 in effect — nothing is advertised or accepted without an explicit
   route-map, so a mistake is silence rather than a leak.
-- 17 `check.sh` rows, each one a claim with a measurement behind it; the exit
-  status is the FAIL count, so CI needs no parsing.
-- 102 unit tests (54 Go for the dashboard, 8 Go for the agent, 41 in the
+- Fourteen checks in `check.sh`, each a claim with a measurement behind it;
+  the exit status is the FAIL count, so CI needs no parsing.
+- 103 unit tests (54 Go for the dashboard, 8 Go for the agent, 41 for the
   browser UI) that need no lab, no registry and no browser.
 
 ## Architecture
@@ -120,8 +121,22 @@ those flags only when it is creating the profile.
 ## Run it
 
 ```bash
-brew install colima docker docker-compose docker-buildx   # macOS, first time only
 ./apply.sh
+```
+
+On macOS without Docker Desktop, install the engine's CLI and its two plugins
+first — `docker compose` and `docker buildx` are plugins, and they arrive with
+Desktop rather than with Colima:
+
+```bash
+brew install colima docker docker-compose docker-buildx
+```
+
+Homebrew then asks you to tell the Docker CLI where the plugins are, by adding
+this to `~/.docker/config.json`:
+
+```json
+{ "cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"] }
 ```
 
 `apply.sh` creates the VM if it is missing, builds the two images, brings the
@@ -129,7 +144,7 @@ six containers up, waits for the six sessions, records everything it did into
 `output/transcript.txt`, and photographs the dashboard.
 
 ```bash
-./check.sh                # 17 rows; exit status is the FAIL count
+./check.sh                # exit status is the FAIL count
 open http://127.0.0.1:8098
 ./cleanup.sh              # stops the project; never deletes the VM
 ```
@@ -158,8 +173,8 @@ Two, both built here, both stamped with the commit that built them.
 
 | Image | Base | What we add | Size |
 |---|---|---|---|
-| `bgp-fabric-agent:local` | `quay.io/frrouting/frr:10.7.1` | one static Go binary and one start script | ~310 MB |
-| `bgp-fabric-dashboard:local` | `alpine:3.22` | one static Go binary, uid 65532 | ~12 MB |
+| `bgp-fabric-agent:local` | `quay.io/frrouting/frr:10.7.1` | one static Go binary and one start script | 326 MB |
+| `bgp-fabric-dashboard:local` | `alpine:3.22` | one static Go binary, uid 65532 | 23.4 MB |
 
 **FRR is not rebuilt, forked or patched.** The agent image is the upstream FRR
 image with a read-only HTTP service added, and `docker inspect` says so:
@@ -171,8 +186,8 @@ docker inspect -f '{{json .Config.Labels}}' bgp-fabric-agent:local
 ```json
 {
   "org.opencontainers.image.base.name": "quay.io/frrouting/frr:10.7.1",
-  "org.opencontainers.image.created": "2026-09-23T21:00:00Z",
-  "org.opencontainers.image.revision": "deadbeefcafe",
+  "org.opencontainers.image.created": "2026-09-23T20:53:58Z",
+  "org.opencontainers.image.revision": "3b56509c68a6c9b4e5406f4215abe6a413d971d6",
   "org.opencontainers.image.title": "bgp-fabric-agent"
 }
 ```
@@ -211,7 +226,7 @@ it has no socket to hand anyone.
 | Go | 1.25 | the dashboard and the agent. Static binaries, no runtime in the image |
 | [coder/websocket](https://github.com/coder/websocket) | v1.8.15 | the dashboard's only Go dependency |
 | [Cytoscape.js](https://js.cytoscape.org/) | 3.34.3, vendored | the graph. Vendored with its sha256 in `dashboard/static/vendor/VERSIONS`, so the page loads no third-party script at runtime |
-| Node | any 20+ | `node --test` for the UI helpers. Nothing is bundled, transpiled or minified |
+| Node | 20 or newer | `node --test` for the UI helpers. Nothing is bundled, transpiled or minified |
 | [netshoot](https://github.com/nicolaka/netshoot) | v0.16 | `tcpdump` on the wire and `ping` from `client0` |
 | shellcheck | any | every shell script, at `-S warning`, in CI |
 | Chrome/Chromium | optional | `apply.sh` photographs the dashboard when `CHROME` points at one; without it the run records that it skipped and passes |
@@ -299,7 +314,7 @@ tests/dashboard-ui-unit.sh       # node --check + node --test on the UI helpers
 tests/dashboard-build-args.sh    # the up-script really passes REVISION/BUILT
 ```
 
-`.github/workflows/fabric-ci.yml` runs those first — they need no lab, so a
+`.github/workflows/fabric-ci.yml` runs those three first — they need no lab, so a
 logic regression fails in seconds rather than after a ten-minute bring-up —
 then builds both images, reads the OCI labels back off them, brings the whole
 fabric up on the runner's own engine, runs `check.sh`, photographs the

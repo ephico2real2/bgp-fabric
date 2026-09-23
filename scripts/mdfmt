@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# mdfmt — format and lint this repository's Markdown, the same way every time, without rewriting what people wrote.
+#   mdfmt check [paths…]   report every problem; exit 1 if any
+#   mdfmt fix   [paths…]   fix in place what can be fixed mechanically, then report what remains
+# Defaults to every tracked *.md. The rules are in .markdownlint-cli2.yaml (recorded evidence and vendored files are
+# never touched). The engine is markdownlint-cli2: blank lines around headings, lists and fences; trailing spaces;
+# consistent list markers and heading style; ordered-list numbering; no hard tabs — and nothing else.
+#
+# Why not prettier: measured, it pads every table cell to the widest column (README.md's widest
+# line went from 876 to 893 characters and every table row became unreadable in source) and rewrites *emphasis* as
+# _emphasis_ on hundreds of lines. Neither is formatting anyone asked for. If a reflow is ever wanted, run it on one
+# file on purpose: `prettier --prose-wrap preserve --print-width 100 <file>`.
+# Requires: markdownlint-cli2 (npm i -g markdownlint-cli2).
+set -uo pipefail; cd "$(dirname "$(readlink -f "$0")")/.."
+MODE="${1:-check}"; shift || true
+if [ $# -gt 0 ]; then FILES=("$@"); else IFS=$'\n' read -r -d '' -a FILES < <(git ls-files '*.md' && printf '\0'); fi
+command -v markdownlint-cli2 >/dev/null || { echo "mdfmt: markdownlint-cli2 not installed (npm i -g markdownlint-cli2)" >&2; exit 2; }
+case "$MODE" in
+  check) markdownlint-cli2 "${FILES[@]}" ;;
+  fix)   markdownlint-cli2 --fix "${FILES[@]}"; echo "--- remaining (not auto-fixable) ---"; markdownlint-cli2 "${FILES[@]}" 2>&1 | tail -3 ;;
+  *)     echo "usage: mdfmt check|fix [paths…]" >&2; exit 2 ;;
+esac
