@@ -169,12 +169,20 @@ FABRIC_ANY_CONTEXT=1 CTX=default ./apply.sh
 
 ## The images
 
-Two, both built here, both stamped with the commit that built them.
+Five take part in a run; two are built here. **[docs/IMAGES.md](docs/IMAGES.md)
+explains what each one is for** — including the three we do not build, and why
+the agent exists at all.
 
-| Image | Base | What we add | Size |
-|---|---|---|---|
-| `bgp-fabric-agent:local` | `quay.io/frrouting/frr:10.7.1` | one static Go binary and one start script | 326 MB |
-| `bgp-fabric-dashboard:local` | `alpine:3.22` | one static Go binary, uid 65532 | 23.4 MB |
+| Image | Base | What we add | Size | Published |
+|---|---|---|---|---|
+| `bgp-fabric-agent` | `quay.io/frrouting/frr:10.7.1` | one static Go binary (5.3 MB) and one start script | 326 MB | `quay.io/ephico2real/bgp-fabric-agent` |
+| `bgp-fabric-dashboard` | `alpine:3.22` | one static Go binary (7.1 MB), uid 65532 | 23.4 MB | `quay.io/ephico2real/bgp-fabric-dashboard` |
+| `quay.io/frrouting/frr:10.7.1` | — | nothing; it is the router | 309 MB | upstream |
+| `golang:1.25-alpine` | — | build stage only, never shipped | — | upstream |
+| `nicolaka/netshoot:v0.16` | — | `client0` and `tcpdump` on the wire | 918 MB | upstream |
+
+Both of ours are pushed by CI for `linux/amd64` and `linux/arm64`, tagged
+`sha-<short>` and `main`.
 
 **FRR is not rebuilt, forked or patched.** The agent image is the upstream FRR
 image with a read-only HTTP service added, and `docker inspect` says so:
