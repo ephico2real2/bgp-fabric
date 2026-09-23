@@ -1,0 +1,63 @@
+{
+  "vrfId": 0,
+  "vrfName": "default",
+  "tableVersion": 5,
+  "routerId": "10.200.255.11",
+  "defaultLocPrf": 100,
+  "localAS": 65101,
+  "routes": {
+    "10.200.255.11/32": [
+      {
+        "valid": true,
+        "bestpath": true,
+        "pathFrom": "external",
+        "prefix": "10.200.255.11",
+        "prefixLen": 32,
+        "network": "10.200.255.11/32",
+        "version": 1,
+        "metric": 0,
+        "weight": 32768,
+        "peerId": "(unspec)",
+        "path": "",
+        "origin": "IGP",
+        "nexthops": [
+          {
+            "ip": "0.0.0.0",
+            "hostname": "leaf1",
+            "afi": "ipv4",
+            "used": true
+          }
+        ]
+      }
+    ],
+    "10.198.0.10/32": [
+      {
+        "valid": true,
+        "bestpath": true,
+        "selectionReason": "First path received",
+        "pathFrom": "external",
+        "prefix": "10.198.0.10",
+        "prefixLen": 32,
+        "network": "10.198.0.10/32",
+        "version": 4,
+        "metric": 0,
+        "locPrf": 100,
+        "weight": 0,
+        "peerId": "172.20.0.3",
+        "path": "65021",
+        "origin": "IGP",
+        "nexthops": [
+          {
+            "ip": "172.20.0.3",
+            "hostname": "eg-poc1-worker",
+            "afi": "ipv4",
+            "used": true
+          }
+        ]
+      }
+    ]
+  },
+  "totalRoutes": 2,
+  "totalPaths": 2,
+  "numRoutes": 2
+}

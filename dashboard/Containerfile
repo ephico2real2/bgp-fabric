@@ -1,0 +1,40 @@
+# bgp-fabric-dashboard: Go binary on alpine 3.22, uid 65532, management LAN only.
+#
+#   docker build -t bgp-fabric-dashboard:local \
+#     -f dashboard/Containerfile dashboard
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+# The commit is the one thing the source cannot know about itself, and it is
+# what answers "is this the build with the fix?" — a question that was
+# otherwise answered by fetching the page's assets and diffing them against a
+# checkout. Passed once, as a build argument, and linked in.
+ARG REVISION=unknown
+ARG BUILT=unknown
+RUN CGO_ENABLED=0 go build -trimpath \
+      -ldflags="-s -w -X main.revision=${REVISION} -X main.built=${BUILT}" \
+      -o /dashboard .
+
+FROM alpine:3.22
+# ARG is PER STAGE. Without these the final stage expands $REVISION to the
+# empty string and the label is silently blank while the binary is right —
+# measured with a two-stage probe build.
+ARG REVISION=unknown
+# org.opencontainers.image.created must be an RFC 3339 date (OCI image-spec,
+# annotations.md), so its fallback is EMPTY — an absent date rather than the
+# invalid token "unknown" a scanner would try to parse. The binary still says
+# "unknown", which is a sentence a reader understands.
+ARG BUILT=
+# The same two values as labels, from the same arguments: `docker inspect` and
+# the page cannot disagree about which build this is.
+LABEL org.opencontainers.image.title="bgp-fabric-dashboard" \
+      org.opencontainers.image.revision="$REVISION" \
+      org.opencontainers.image.created="$BUILT"
+RUN adduser -D -H -u 65532 dashboard
+COPY --from=build /dashboard /dashboard
+RUN chmod 0755 /dashboard
+EXPOSE 8080
+USER 65532
+ENTRYPOINT ["/dashboard"]

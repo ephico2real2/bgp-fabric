@@ -1,0 +1,659 @@
+:root {
+  --bg: #f4f1ea;
+  --fg: #1c1916;
+  --muted: #5c564e;
+  --panel: #fffdf8;
+  --line: #d8d0c4;
+  --est: #2f7d32;
+  --trans: #a35f00;
+  --down: #b42318;
+  --stale: #6b6570;
+  --session: #2f7d32;
+  --router: #1d4ed8;
+  --route: #7c3aed;
+  --focus: #1d4ed8;
+  --picked: #2f7d32;
+  --hover-fill: #efe8dc;
+  /* signal: a router carrying a cluster's traffic, and the two degrees of a
+     peer running out of hold time. Distinct from --est/--trans/--down, which
+     say what STATE a session is in, not what it is doing. */
+  --accept: #0e7490;
+  --late: #a35f00;
+  --critical: #b42318;
+  /* selection is a manipulation state, not a health state, so it gets its own
+     hue away from green/amber/red/teal/blue. */
+  --select: #6d28d9;
+  --card: #fffdf8;
+  --wash-stale: #6b65701f;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: "Source Sans 3", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161410;
+    --fg: #f3efe6;
+    --muted: #b4ada2;
+    --panel: #1f1b16;
+    --line: #3a342c;
+    --est: #4ade80;
+    --trans: #fbbf24;
+    --down: #f87171;
+    --stale: #a8a29e;
+    --session: #4ade80;
+    --router: #93c5fd;
+    --route: #c4b5fd;
+    --focus: #93c5fd;
+    --picked: #4ade80;
+    --hover-fill: #2a241c;
+    --accept: #22d3ee;
+    --late: #fbbf24;
+    --critical: #f87171;
+    --select: #c4b5fd;
+    --card: #1f1b16;
+    --wash-stale: #a8a29e26;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; max-width: 100%; }
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.4 var(--sans);
+  overflow-x: hidden;
+}
+
+.bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.titles { min-width: 0; max-width: 100%; }
+h1 { font-size: 16px; margin: 0; font-weight: 650; }
+.lede {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 52em;
+  overflow-wrap: anywhere;
+}
+h2 { font-size: 13px; margin: 0 0 6px; font-weight: 650; color: var(--muted); }
+.meta { display: flex; flex-wrap: wrap; gap: 10px 14px; color: var(--muted); font-size: 12px; justify-content: flex-end; }
+.ws { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--down); flex: 0 0 auto; }
+.dot.established, .dot.up { background: var(--est); }
+.dot.transitional { background: var(--trans); }
+.dot.down { background: var(--down); }
+.dot.stale { background: var(--stale); }
+.dot.session { background: var(--session); }
+.dot.router { background: var(--router); }
+.dot.route { background: var(--route); }
+.dot.accept { background: var(--accept); }
+/* Selection is drawn as an outline on the node, so the legend shows a ring
+   rather than a filled dot: the fill channel already means something else. */
+.legend-outline {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border: 2px solid var(--select);
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+.dot.late { background: var(--late); }
+.dot.critical { background: var(--critical); }
+
+.legend-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  flex: 0 0 auto;
+}
+.legend-toggle {
+  display: none;
+  font: 12px/1.3 var(--sans);
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 8px;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+.legend li { display: inline-flex; align-items: center; gap: 6px; }
+.legend-ellipse {
+  width: 16px;
+  height: 10px;
+  border: 1.5px dashed var(--muted);
+  border-radius: 50%;
+  display: inline-block;
+}
+.legend-star { color: var(--est); font-weight: 700; width: 1em; text-align: center; }
+
+main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+#graph-pane {
+  flex: 0 0 65%;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#graph { flex: 1 1 auto; min-width: 0; min-height: 0; width: 100%; overflow: hidden; }
+#graph:focus { outline: none; }
+/* The graph's overlay, and ONLY the graph's overlay.
+   `position: absolute; inset: 0` needs a positioned ancestor, and #graph-pane
+   is the only one in the layout. While this was a shared `.empty` class it also
+   caught #signal-strip's waiting state and resolved it against the VIEWPORT:
+   measured 2026-09-21 at ?router=<a name the fabric does not have>, the strip's
+   box was 0,0,1200,796 for a pane at 787,107,1200,509, painting "waiting for
+   the first poll" across the header and the topology. Fixing the Events message
+   by giving it .pane-empty treated the symptom; this is the cause. Keyed by id
+   it cannot be reused by accident, and #signal-strip keeps its own rule below. */
+#graph-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: var(--muted);
+  pointer-events: none;
+}
+#graph-empty[hidden] { display: none; }
+.node-keys {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.node-keys button {
+  font: 12px var(--sans);
+  color: var(--fg);
+  background: var(--panel);
+}
+.node-keys button:focus { outline: 2px solid var(--focus); }
+.hover-card {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 2;
+  max-width: calc(100% - 16px);
+  margin: 0 auto;
+  padding: 6px 8px;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 1px 6px #0002;
+  font: 11px/1.4 var(--mono);
+  pointer-events: none;
+}
+.hover-card[hidden] { display: none; }
+
+.side {
+  flex: 1 1 35%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+}
+.tabs { display: none; }
+#rib-pane {
+  flex: 1 1 58%;
+  min-height: 0;
+  /* Without min-width: 0 a flex/grid item's floor is its content, so the
+     tables' max-content width became the pane's floor and pushed the PAGE
+     128px wider instead of scrolling inside the wrap (measured). */
+  min-width: 0;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+}
+#rib-pane.stale { background: var(--wash-stale); }
+.why, .status { margin: 0 0 6px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.status:empty, .why:empty { display: none; }
+/* min-width: 0 lets the wrap shrink inside its grid/flex parent instead of
+   pushing the page wider — without it the table's width became the pane's
+   floor and the page overflowed by 41px (measured). */
+.table-wrap { overflow: auto; flex: 1; min-height: 0; min-width: 0; max-width: 100%; }
+/* These tables are wider than the pane, and that is fine — the wrap scrolls
+   and the pane is resizable. Cramming them was worse: at the default 413px
+   split, six columns under `table-layout: fixed` drew the peer address over
+   the AS column ("10.2003.6.51.10.30"), overlapped the headers into "peerAS",
+   and broke "Established" across two lines (measured). Columns size to their
+   content; `min-width: 100%` keeps a narrow table filling the pane. */
+table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
+  border-collapse: collapse;
+  font: 12px/1.35 var(--mono);
+}
+/* An address, a state and a count are never wrapped — breaking them is how the
+   column ends up unreadable. Prose-ish cells may wrap. */
+th, td { white-space: nowrap; }
+td.prefix, td.nexthop, .neighbours td:first-child, .traffic-list .meta { white-space: nowrap; }
+th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+td.best { color: var(--est); width: 1.2em; }
+tr.path td.prefix { color: var(--muted); }
+tr.path td.nexthop { padding-left: 1.4em; }
+#rib-pane.stale td { color: var(--stale); }
+#rib-pane.stale td.best { color: var(--stale); }
+
+#events-pane {
+  flex: 0 0 42%;
+  min-height: 120px;
+  border-top: 1px solid var(--line);
+  padding: 6px 10px 8px;
+  display: flex;
+  flex-direction: column;
+}
+.event-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.event-toolbar select, .event-toolbar button {
+  font: 12px var(--sans);
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.check { display: inline-flex; align-items: center; gap: 4px; }
+.paused { color: var(--trans); font-weight: 650; }
+#events {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: auto;
+  font: 12px/1.45 var(--mono);
+}
+#events li { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 1px 0; }
+#events .ts { color: var(--muted); flex: 0 0 5.5em; white-space: nowrap; }
+#events .kind { flex: 0 0 4.5em; color: var(--muted); }
+#events .router { flex: 0 0 4.5em; }
+#events .who { flex: 0 0 10em; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#events .change { color: var(--muted); flex: 1 1 10em; min-width: 0; overflow-wrap: anywhere; }
+h2 .dot { margin-right: 4px; vertical-align: middle; }
+
+@media (max-width: 700px) {
+  html, body { overflow-x: hidden; }
+  .bar { flex-direction: column; align-items: flex-start; }
+  .meta { justify-content: flex-start; }
+  .legend-toggle { display: inline-block; }
+  .legend { display: none; }
+  .legend-bar.open .legend { display: flex; }
+  .legend-bar.open .legend-toggle { display: inline-block; }
+  main { flex-direction: column; }
+  #graph-pane {
+    flex: 0 0 auto;
+    height: 48vh;
+    min-height: 240px;
+    max-height: 52vh;
+  }
+  .side {
+    flex: 1 1 auto;
+    min-height: 0;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--line);
+  }
+  .tabs button {
+    flex: 1 1 8em;
+    min-width: 0;
+    font: 13px/1.3 var(--sans);
+    font-weight: 650;
+    color: var(--muted);
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    padding: 8px 10px;
+  }
+  .tabs button[aria-selected="true"] {
+    color: var(--fg);
+    border-bottom-color: var(--focus);
+  }
+  #rib-pane, #events-pane {
+    display: none;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    border-top: 0;
+  }
+  body[data-tab="rib"] #rib-pane { display: flex; }
+  body[data-tab="events"] #events-pane { display: flex; }
+  #events li { flex-wrap: wrap; }
+  #events .ts { flex-basis: 5.5em; }
+  .table-wrap { max-width: 100%; }
+  /* At phone width the columns share the pane and cells wrap, rather than the
+     table scrolling sideways. width:auto overrides the max-content default. */
+  /* #rib-pane raises the specificity above the .neighbours sizing rule, which
+     is declared later in the file and would otherwise win on source order and
+     leave the table 399px wide in a 375px viewport (measured). */
+  table, #rib-pane .neighbours { table-layout: fixed; width: 100%; max-width: 100%; min-width: 0; }
+  th, td { white-space: normal; overflow-wrap: break-word; }
+  th, td { overflow-wrap: anywhere; }
+  th:first-child, td.best { width: 1.2em; }
+}
+
+/* ---- resizable panes ---------------------------------------------------
+   The layout was three fixed percentages. It is now a grid whose columns and
+   rows are driven by custom properties, so a splitter can move them and
+   Cytoscape can be told to re-fit. The percentages below are the old ones, so
+   a page that has never been dragged looks exactly as it did. */
+main {
+  --split-col: 65%;
+  --split-row: 58%;
+  --split-foot: 26%;
+}
+@media (min-width: 701px) {
+  main { display: grid; grid-template-columns: var(--split-col) 6px 1fr; }
+  /* The graph pane is a grid too, so the legend can be resized like the other
+     panes. Tracks are assigned by NAME for the same reason as the side pane:
+     the absolutely-positioned children are out of flow, and auto-placement
+     would slide the splitter into the graph's track. */
+  #graph-pane {
+    flex: none; min-width: 0; grid-column: 1;
+    display: grid; grid-template-rows: 1fr 6px var(--split-foot);
+  }
+  #graph { grid-row: 1; }
+  #split-foot { grid-row: 2; }
+  .graph-foot { grid-row: 3; overflow: auto; }
+  #split-col { grid-column: 2; }
+  .side { flex: none; min-width: 0; display: grid; grid-template-rows: var(--split-row) 6px 1fr; grid-column: 3; }
+  /* Every track is assigned by NAME, not by source order. `.tabs` is
+     display:none at this width, so it leaves the grid entirely and
+     auto-placement slides everything up a track: measured 2026-09-21, the
+     splitter took the RIB's 58% row (a 402px grey void) and the Events pane
+     was squeezed into the 6px one. */
+  #rib-pane { flex: none; min-height: 0; grid-row: 1; }
+  #split-row { grid-row: 2; }
+  #events-pane { flex: none; min-height: 0; grid-row: 3; }
+}
+
+/* A splitter is a real control: it has a role, it takes focus, and the arrow
+   keys move it, because dragging is not available to everyone. */
+.splitter {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  position: relative;
+  touch-action: none;
+}
+.splitter::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--line);
+  transition: background 120ms ease;
+}
+.splitter:hover::before, .splitter:focus-visible::before { background: var(--focus); }
+.splitter:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.splitter[aria-orientation="vertical"] { cursor: col-resize; }
+.splitter[aria-orientation="horizontal"] { cursor: row-resize; }
+body.dragging { user-select: none; cursor: col-resize; }
+@media (max-width: 700px) { .splitter { display: none; } }
+
+/* ---- the strip beside the RIB and above Events -------------------------
+   The two gutters the layout was wasting. They carry per-edge numbers the
+   page already has and had nowhere to put. */
+.signal-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+.signal-strip .k { color: var(--muted); }
+.signal-strip .v { color: var(--fg); font-family: var(--mono); }
+.signal-strip .v.accept { color: var(--accept); }
+.signal-strip .v.late { color: var(--late); }
+.signal-strip .v.critical { color: var(--critical); }
+.signal-strip .v.unknown { color: var(--muted); font-style: italic; }
+.signal-strip.empty { color: var(--muted); font-style: italic; }
+
+/* freshness: the page says out loud when it is showing data that stopped
+   arriving, instead of animating over it. */
+#age.lagging { color: var(--late); }
+#age.stale { color: var(--critical); font-weight: 600; }
+body.stale-data #graph { opacity: 0.55; filter: saturate(0.4); }
+
+/* ---- the Activity pane: Events or Traffic ------------------------------
+   Events answers "what changed" and correctly falls silent on a healthy
+   fabric. Traffic answers "is anything moving", which is the question an
+   empty Events list cannot. */
+.pane-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.subtabs { display: inline-flex; gap: 2px; }
+.subtabs button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.subtabs button:first-child { border-radius: 4px 0 0 4px; }
+.subtabs button:last-child { border-radius: 0 4px 4px 0; }
+.subtabs button[aria-selected="true"] {
+  color: var(--fg);
+  background: var(--hover-fill);
+  border-color: var(--focus);
+}
+#events-pane[data-view="traffic"] .event-toolbar,
+#events-pane[data-view="traffic"] #events,
+#events-pane[data-view="traffic"] #events-empty { display: none; }
+#events-pane[data-view="events"] #traffic,
+#events-pane[data-view="events"] #traffic-empty { display: none; }
+
+.traffic { overflow: auto; flex: 1; min-height: 0; font-size: 12px; }
+/* The activity pane's empty states are NOT .empty: that class is
+   `position: absolute; inset: 0` for centring over the graph, and inside this
+   pane it resolved against the wrong ancestor and spilled the message across
+   the topology and the RIB (measured 2026-09-21). These stay in the flow. */
+.pane-empty {
+  position: static;
+  margin: 6px 0 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.pane-empty[hidden] { display: none; }
+
+.traffic-caption { color: var(--muted); margin: 2px 0 6px; }
+.traffic-list { list-style: none; margin: 0; padding: 0; }
+.traffic-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+.traffic-list .link { font-weight: 600; white-space: nowrap; flex: 0 0 auto; }
+.traffic-list .msgs { font-family: var(--mono); white-space: nowrap; margin-left: auto; }
+.traffic-list .arrows { color: var(--muted); }
+.traffic-list .unit { color: var(--muted); }
+.traffic-list .heard { font-family: var(--mono); white-space: nowrap; color: var(--muted); }
+.traffic-list .meta { flex: 1 0 100%; color: var(--muted); font-size: 11px; }
+/* These have to paint or the view says nothing in colour that it does not
+   already say in words. Measured 2026-09-21: `.moving` and `.idle` both
+   rendered #1c1916, and a session 8.0s into a 9s hold time rendered in the same
+   muted grey as one heard 1.0s ago — the rules were written for the table this
+   list replaced and went out with it. Scoped inside .traffic-list so the
+   cascade does not depend on source order against .dot / .signal-strip. */
+.traffic-list .moving { color: var(--fg); font-weight: 600; }
+.traffic-list .idle { color: var(--muted); }
+.traffic-list .unpolled { color: var(--muted); font-style: italic; }
+.traffic-list .msgs .down { color: var(--critical); font-weight: 600; }
+.traffic-list .heard .late { color: var(--late); }
+.traffic-list .heard .critical { color: var(--critical); font-weight: 600; }
+
+
+/* ---- the strip under the topology --------------------------------------
+   The graph pane had a large dead area below the nodes. It carries the two
+   things a reader of this page actually needs there: what each router is FOR,
+   and the controls for arranging the picture. */
+.graph-foot {
+  flex: 0 0 auto;
+  /* the grid gives it a row at wide widths; this is the narrow fallback */
+  border-top: 1px solid var(--line);
+  padding: 6px 0 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+.graph-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.graph-tools button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.graph-tools button:hover { border-color: var(--focus); }
+.graph-tools button:disabled { color: var(--muted); cursor: default; border-color: var(--line); }
+.sel-count { color: var(--muted); font-size: 12px; }
+.sel-count.active { color: var(--accept); }
+
+.roles {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 10px;
+  font-size: 12px;
+  overflow: auto;
+  min-height: 0;
+}
+.roles dt { font-weight: 600; white-space: nowrap; }
+.roles dt .asn { color: var(--muted); font-weight: 400; font-family: var(--mono); }
+.roles dd { margin: 0; color: var(--muted); }
+.roles .mark {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border: 2px solid var(--fg);
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+.roles .mark.accept { border-color: var(--accept); }
+.roles .mark.external { border-radius: 50%; border-style: dotted; }
+@media (max-width: 700px) { .graph-foot { display: none; } }
+
+/* ---- BGP state, wherever it is shown -----------------------------------
+   The event list, the neighbours table and the RIB all name a session state,
+   and they all read it the same way. `Idle (Admin)` is an administrative
+   shutdown: it must read as down rather than falling through to the unknown
+   colour, which is what an exact-string match does. */
+.state-established { color: var(--est); font-weight: 600; }
+.state-down { color: var(--down); font-weight: 600; }
+.state-transitional { color: var(--trans); font-weight: 600; }
+.state-stale { color: var(--stale); font-style: italic; }
+.state-unknown { color: var(--muted); font-style: italic; }
+/* `#events .change` sets the muted colour at (1,1,0) and a bare state class is
+   (0,1,0), so the class was applied and then overruled — the event list showed
+   "Idle→Active" in the same grey as everything else while the neighbours table
+   coloured it correctly (measured: rgb(92,86,78) against rgb(180,35,24)).
+   Scoped here so the state wins where a state is shown. */
+#events .change.state-established { color: var(--est); font-weight: 600; }
+#events .change.state-down { color: var(--down); font-weight: 600; }
+#events .change.state-transitional { color: var(--trans); font-weight: 600; }
+#events .change.state-stale { color: var(--stale); font-style: italic; }
+#events .change.state-unknown { color: var(--muted); font-style: italic; }
+
+/* ---- the neighbours table ---------------------------------------------- */
+.sub {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 10px 0 2px;
+}
+.sub-count { text-transform: none; letter-spacing: 0; }
+.neighbours { width: max-content; min-width: 100%; border-collapse: collapse; }
+.neighbours th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  padding: 2px 6px 3px 0;
+  white-space: nowrap;
+}
+.neighbours td { padding: 3px 6px 3px 0; overflow-wrap: anywhere; }
+.neighbours tbody tr { border-bottom: 1px solid var(--line); }
+.neighbours .num, .neighbours th.num { text-align: right; font-family: var(--mono); }
+.neighbours .nexthop { font-family: var(--mono); }
+.neighbours tr.stale-row td { opacity: 0.65; }
+/* The hostname is context, not the identifier: it gets a muted second line and
+   is cut with an ellipsis rather than wrapping. The full value is in the
+   title. */
+.neighbours .host {
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.neighbours td:first-child { white-space: nowrap; }
+
+/* Which build is serving this page. Provenance, not status: it sits after the
+   live dot and does not compete with it for attention. */
+.build {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  color: var(--muted, #6b6560);
+  white-space: nowrap;
+}
+.build[data-unknown="yes"] { color: var(--warn, #9a6700); }
+/* A dirty tree is not a commit either: the sha names code that is not what is
+   running, so it reads like a build nobody can name rather than a clean one. */
+.build[data-dirty="yes"] { color: var(--warn, #9a6700); }

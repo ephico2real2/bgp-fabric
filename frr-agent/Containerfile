@@ -1,0 +1,37 @@
+# bgp-fabric-agent: the pinned FRR image plus a show-only HTTP agent.
+# FRR itself is not rebuilt, forked or patched — this image is that image with
+# one static binary and one start script added.
+# ENTRYPOINT stays tini (the FRR image's). compose command is
+# /usr/local/bin/fabric-router-start.
+#
+#   docker build -t bgp-fabric-agent:local --build-arg FRR_IMAGE=quay.io/frrouting/frr:10.7.1 \
+#     -f frr-agent/Containerfile frr-agent
+ARG FRR_IMAGE=quay.io/frrouting/frr:10.7.1
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+COPY go.mod ./
+COPY *.go ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /frr-agent .
+
+FROM ${FRR_IMAGE}
+# iptables: the entrypoint drops FORWARD onto/off the out-of-band
+# management LAN so the data plane has no path to the agents.
+RUN apk add --no-cache iptables
+COPY --from=build /frr-agent /usr/local/bin/frr-agent
+COPY start.sh /usr/local/bin/fabric-router-start
+RUN chmod 0755 /usr/local/bin/frr-agent /usr/local/bin/fabric-router-start
+# ARG is PER STAGE: without re-declaring them here the final stage expands
+# $REVISION to the empty string and the label is silently blank while the
+# binary is right. org.opencontainers.image.created must be an RFC 3339 date
+# (OCI image-spec, annotations.md), so its fallback is EMPTY rather than the
+# invalid token "unknown" a scanner would try to parse.
+ARG REVISION=unknown
+ARG BUILT=
+# FRR_IMAGE is declared before the first FROM, which puts it in the GLOBAL
+# scope: usable by FROM, invisible inside a stage until re-declared. Without
+# this line base.name is the empty string.
+ARG FRR_IMAGE
+LABEL org.opencontainers.image.title="bgp-fabric-agent" \
+      org.opencontainers.image.revision="$REVISION" \
+      org.opencontainers.image.created="$BUILT" \
+      org.opencontainers.image.base.name="$FRR_IMAGE"

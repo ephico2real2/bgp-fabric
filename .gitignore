@@ -1,0 +1,6 @@
+# the compiled dashboard — built by the Containerfile, never committed
+dashboard/bgp-dashboard
+# what a run writes
+output/
+# the local overrides of fabric/.env.example
+fabric/.env

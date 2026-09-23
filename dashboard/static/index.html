@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>bgp-fabric</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body data-tab="rib">
+  <header class="bar">
+    <div class="titles">
+      <h1>bgp-fabric — live</h1>
+      <p class="lede">One live view of the four-router fabric and every BGP session the management-LAN agents report.</p>
+    </div>
+    <div class="meta">
+      <span id="poll">waiting for the first poll</span>
+      <span id="reach">waiting for the first poll</span>
+      <span id="sess">waiting for the first poll</span>
+      <span id="age" title="how old the data on this page is, measured by the server">age —</span>
+      <span class="ws"><i id="wsdot" class="dot down"></i> <span id="wslabel">connecting</span></span>
+      <span id="build" class="build" hidden></span>
+    </div>
+  </header>
+  <div class="legend-bar">
+    <button type="button" id="legend-toggle" class="legend-toggle" aria-expanded="false" aria-controls="legend">Legend</button>
+    <ul id="legend" class="legend" hidden>
+      <li><i class="dot established"></i> Established</li>
+      <li><i class="dot transitional"></i> transitional</li>
+      <li><i class="dot down"></i> down</li>
+      <li><i class="dot stale"></i> stale (last-known)</li>
+      <li><i class="legend-ellipse" aria-hidden="true"></i> dashed ellipse — dynamic neighbour, not a router</li>
+      <li><span class="legend-star" aria-hidden="true">*</span> best path</li>
+      <li><i class="dot accept"></i> accepting a cluster (listen range has members)</li>
+      <li><i class="dot late"></i> a keepalive is overdue</li>
+      <li><i class="dot critical"></i> running out of hold time</li>
+      <li><i class="legend-outline" aria-hidden="true"></i> selected — drag one to move them together</li>
+    </ul>
+  </div>
+  <main>
+    <section id="graph-pane">
+      <div id="graph" aria-label="topology" tabindex="0"></div>
+      <p id="graph-empty" class="empty">waiting for the first poll</p>
+      <ul id="node-keys" class="node-keys"></ul>
+      <aside id="hover-card" class="hover-card" hidden></aside>
+      <button type="button" class="splitter" id="split-foot" aria-orientation="horizontal"
+              role="separator" aria-label="Resize the legend" tabindex="0"
+              aria-valuemin="8" aria-valuemax="60" aria-valuenow="26"></button>
+      <div class="graph-foot">
+        <div class="graph-tools">
+          <button type="button" id="select-all" title="Select every node (Ctrl/Cmd+A with the graph focused)">Select all</button>
+          <button type="button" id="clear-sel" title="Clear the selection (Escape)">Clear</button>
+          <button type="button" id="reset-layout" title="Put every node back where the layout put it">Reset layout</button>
+          <span id="sel-count" class="sel-count">drag the background to select · drag a selected node to move them together</span>
+        </div>
+        <dl id="roles" class="roles"></dl>
+      </div>
+    </section>
+    <button type="button" class="splitter" id="split-col" aria-orientation="vertical"
+            role="separator" aria-label="Resize the topology pane" tabindex="0"
+            aria-valuemin="25" aria-valuemax="80" aria-valuenow="65"></button>
+    <div class="side">
+      <div class="tabs" role="tablist" aria-label="RIB and Events">
+        <button type="button" role="tab" id="tab-rib" aria-controls="rib-pane" aria-selected="true" data-tab="rib">RIB</button>
+        <button type="button" role="tab" id="tab-events" aria-controls="events-pane" aria-selected="false" data-tab="events">Events</button>
+      </div>
+      <aside id="rib-pane" role="tabpanel" aria-labelledby="tab-rib">
+        <h2>RIB of <i id="rib-dot" class="dot down" aria-hidden="true"></i> <span id="rib-name">spine</span></h2>
+        <div id="signal-strip" class="signal-strip empty">waiting for the first poll</div>
+        <h3 class="sub">Neighbours <span id="nbr-count" class="sub-count"></span></h3>
+        <div class="table-wrap">
+          <table class="neighbours">
+            <thead>
+              <tr><th>peer</th><th>AS</th><th>state</th><th class="num">pfx rcd</th><th class="num">pfx snt</th><th>uptime</th></tr>
+            </thead>
+            <tbody id="neighbours"></tbody>
+          </table>
+        </div>
+        <h3 class="sub">BGP table</h3>
+        <p id="rib-why" class="why"></p>
+        <p id="rib-status" class="status"></p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th></th><th>prefix</th><th>nexthop</th><th>path</th><th class="num">LP</th><th class="num">MED</th><th>from</th></tr>
+            </thead>
+            <tbody id="rib"></tbody>
+          </table>
+        </div>
+      </aside>
+      <button type="button" class="splitter" id="split-row" aria-orientation="horizontal"
+              role="separator" aria-label="Resize the RIB pane" tabindex="0"
+              aria-valuemin="20" aria-valuemax="85" aria-valuenow="58"></button>
+      <section id="events-pane" role="tabpanel" aria-labelledby="tab-events" data-view="events">
+        <div class="pane-head">
+          <h2>Activity</h2>
+          <div class="subtabs" role="tablist" aria-label="Events or traffic">
+            <button type="button" role="tab" id="view-events" data-view="events" aria-selected="true">Events</button>
+            <button type="button" role="tab" id="view-traffic" data-view="traffic" aria-selected="false">Traffic</button>
+          </div>
+        </div>
+        <div class="event-toolbar">
+          <label>kind
+            <select id="ev-kind">
+              <option value="">all</option>
+              <option value="session">session up/down</option>
+              <option value="route">route added/withdrawn</option>
+              <option value="router">router reachable/unreachable</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" id="ev-selected"> selected router</label>
+          <button type="button" id="ev-pause">Pause</button>
+          <span id="ev-paused" class="paused" hidden>paused, 0 new</span>
+        </div>
+        <ol id="events" reversed></ol>
+        <p id="events-empty" class="pane-empty" hidden></p>
+        <div id="traffic" class="traffic"></div>
+        <p id="traffic-empty" class="pane-empty" hidden>waiting for the first poll</p>
+      </section>
+    </div>
+  </main>
+  <script src="vendor/cytoscape.min.js"></script>
+  <script src="ui.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

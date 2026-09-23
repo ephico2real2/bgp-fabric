@@ -1,0 +1,64 @@
+{
+  "ipv4Unicast": {
+    "routerId": "10.200.255.11",
+    "as": 65101,
+    "vrfId": 0,
+    "vrfName": "default",
+    "tableVersion": 5,
+    "ribCount": 9,
+    "ribMemory": 1152,
+    "peerCount": 2,
+    "peerMemory": 33808,
+    "peers": {
+      "10.200.1.3": {
+        "hostname": "spine",
+        "softwareVersion": "n/a",
+        "remoteAs": 65100,
+        "localAs": 65101,
+        "version": 4,
+        "msgRcvd": 8,
+        "msgSent": 9,
+        "tableVersion": 5,
+        "outq": 0,
+        "inq": 0,
+        "peerUptime": "00:00:04",
+        "peerUptimeMsec": 4000,
+        "pfxRcd": 4,
+        "pfxSnt": 5,
+        "state": "Established",
+        "peerState": "OK",
+        "connectionsEstablished": 1,
+        "connectionsDropped": 0,
+        "idType": "ipv4"
+      },
+      "172.20.0.3": {
+        "hostname": "eg-poc1-worker",
+        "softwareVersion": "n/a",
+        "remoteAs": 65021,
+        "localAs": 65101,
+        "version": 4,
+        "msgRcvd": 6,
+        "msgSent": 6,
+        "tableVersion": 5,
+        "outq": 0,
+        "inq": 0,
+        "peerUptime": "00:00:02",
+        "peerUptimeMsec": 2000,
+        "pfxRcd": 2,
+        "pfxSnt": 0,
+        "state": "Established",
+        "peerState": "OK",
+        "connectionsEstablished": 1,
+        "connectionsDropped": 0,
+        "idType": "ipv4"
+      }
+    },
+    "failedPeers": 0,
+    "displayedPeers": 2,
+    "totalPeers": 2,
+    "dynamicPeers": 1,
+    "bestPath": {
+      "multiPathRelax": "false"
+    }
+  }
+}

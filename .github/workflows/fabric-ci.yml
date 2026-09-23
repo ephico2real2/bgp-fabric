@@ -1,0 +1,268 @@
+# The four-router fabric, brought up on the runner's own Docker engine, with
+# the same apply.sh and check.sh a laptop runs. One Actions run whose number,
+# images, transcript and pictures a later commit can cite.
+#
+# On a runner there is no VM: the engine is the host's, the kernel is the
+# host's, and CTX names the single daemon. FABRIC_ANY_CONTEXT=1 is the
+# deliberate way past the context gate, which exists to stop a laptop with
+# several daemons tearing down the wrong lab.
+#
+# contents: write is only for the ci-captures branch — a job summary strips
+# data: URIs and cannot read artifacts, so the pictures need somewhere to live
+# that a Markdown image tag can reach. A pull request from a fork has no
+# registry credentials and must still go green.
+name: fabric-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fabric:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CTX: default
+      FABRIC_ANY_CONTEXT: "1"
+      REGISTRY: ${{ vars.REGISTRY || 'quay.io' }}
+      REGISTRY_NAMESPACE: ${{ vars.REGISTRY_NAMESPACE || 'ephico2real' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: |
+            dashboard/go.sum
+            frr-agent/go.mod
+
+      - uses: docker/setup-buildx-action@v3
+
+      # First, and on their own: the unit tests need no lab, no registry and no
+      # browser, so a logic regression fails here in seconds rather than after
+      # a ten-minute bring-up.
+      - name: Unit tests
+        run: |
+          set -euo pipefail
+          tests/fabric-dashboard-unit.sh
+          tests/dashboard-ui-unit.sh
+          tests/dashboard-build-args.sh
+
+      - name: Shellcheck
+        run: shellcheck -S warning apply.sh check.sh cleanup.sh scripts/*.sh tests/*.sh
+
+      # The commit is the one thing a Containerfile cannot learn about itself,
+      # and it is the one a reader needs: the page says which build is serving
+      # it, and `docker inspect` must agree. Build ARGS, not labels — the
+      # Containerfile turns them into BOTH the OCI labels and the values the
+      # binary serves on /api/version, so the two cannot disagree.
+      - name: Build the two images
+        id: image
+        run: |
+          set -euo pipefail
+          SHORT=$(printf '%s' "${{ github.sha }}" | cut -c1-7)
+          BUILT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          DASHBOARD="${REGISTRY}/${REGISTRY_NAMESPACE}/bgp-fabric-dashboard"
+          AGENT="${REGISTRY}/${REGISTRY_NAMESPACE}/bgp-fabric-agent"
+          {
+            echo "short=${SHORT}"
+            echo "built=${BUILT}"
+            echo "dashboard=${DASHBOARD}"
+            echo "agent=${AGENT}"
+          } >> "$GITHUB_OUTPUT"
+          # shellcheck disable=SC1091
+          . scripts/versions.env
+          ARGS=(
+            --build-arg "REVISION=${{ github.sha }}"
+            --build-arg "BUILT=${BUILT}"
+          )
+          # Loaded under the local tags the lab expects, so fabric-up.sh finds
+          # them present and does not build a second, unstamped copy.
+          docker buildx build --load "${ARGS[@]}" \
+            -t "${DASHBOARD}:sha-${SHORT}" \
+            -t bgp-fabric-dashboard:local \
+            -f dashboard/Containerfile dashboard/
+          docker buildx build --load "${ARGS[@]}" \
+            --build-arg "FRR_IMAGE=${FRR_IMAGE}" \
+            -t "${AGENT}:sha-${SHORT}" \
+            -t bgp-fabric-agent:local \
+            -f frr-agent/Containerfile frr-agent/
+
+      # ARG is per stage, so a final stage that forgets to re-declare REVISION
+      # produces a correct binary with a blank label and nothing complains.
+      # Read the labels back off the built images instead of trusting the build.
+      - name: Both images name the commit that built them
+        run: |
+          set -euo pipefail
+          for img in bgp-fabric-dashboard:local bgp-fabric-agent:local; do
+            got=$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$img")
+            [ "$got" = "${{ github.sha }}" ] || { echo "$img: label=$got want=${{ github.sha }}"; exit 1; }
+            echo "$img org.opencontainers.image.revision=$got"
+          done
+          base=$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.base.name"}}' bgp-fabric-agent:local)
+          # shellcheck disable=SC1091
+          . scripts/versions.env
+          [ "$base" = "$FRR_IMAGE" ] || { echo "agent base=$base want=$FRR_IMAGE"; exit 1; }
+          echo "bgp-fabric-agent is $FRR_IMAGE plus one binary"
+
+      - name: Check the publish credentials are configured
+        id: creds
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          # Presence only — never echo the values. Unset and empty both mean
+          # "cannot publish"; a fork PR without credentials must still go green.
+          if [ -z "${REGISTRY_USERNAME}" ] || [ -z "${REGISTRY_PASSWORD}" ]; then
+            echo "::warning::REGISTRY_USERNAME / REGISTRY_PASSWORD are not set; skipping publish."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push both images
+        id: push
+        if: steps.creds.outputs.configured == 'true' && github.event_name != 'pull_request'
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+          DASHBOARD: ${{ steps.image.outputs.dashboard }}
+          AGENT: ${{ steps.image.outputs.agent }}
+          SHORT: ${{ steps.image.outputs.short }}
+          BUILT: ${{ steps.image.outputs.built }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${REGISTRY_PASSWORD}" \
+            | docker login "${REGISTRY}" --username "${REGISTRY_USERNAME}" --password-stdin
+          # shellcheck disable=SC1091
+          . scripts/versions.env
+          ARGS=(
+            --platform linux/amd64,linux/arm64
+            --build-arg "REVISION=${{ github.sha }}"
+            --build-arg "BUILT=${BUILT}"
+          )
+          docker buildx build "${ARGS[@]}" \
+            --build-arg "FRR_IMAGE=${FRR_IMAGE}" \
+            -t "${AGENT}:sha-${SHORT}" -t "${AGENT}:main" \
+            --push -f frr-agent/Containerfile frr-agent/
+          docker buildx build "${ARGS[@]}" \
+            -t "${DASHBOARD}:sha-${SHORT}" -t "${DASHBOARD}:main" \
+            --push --metadata-file /tmp/dash-meta.json \
+            -f dashboard/Containerfile dashboard/
+          digest=$(python3 -c 'import json; print(json.load(open("/tmp/dash-meta.json")).get("containerimage.digest",""))')
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "pushed ${DASHBOARD}:sha-${SHORT} digest=${digest}"
+
+      # Chrome is on the runner image; apply.sh photographs the dashboard with
+      # it. Without CHROME the screenshot step records that it was skipped and
+      # the run still passes — a missing browser is not a broken fabric.
+      - name: Apply — bring the fabric up and record the evidence
+        id: up
+        env:
+          CHROME: /usr/bin/google-chrome
+        run: ./apply.sh
+
+      - name: Check
+        id: check
+        run: |
+          set -o pipefail
+          ./check.sh | tee output/check.txt
+          {
+            echo "## check"
+            echo
+            echo '```'
+            cat output/check.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish the pictures to ci-captures
+        if: always() && !cancelled()
+        id: captures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          OUT=output/screenshots
+          ls "$OUT"/*.png >/dev/null 2>&1 || {
+            echo "no captures to publish" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "dir=" >> "$GITHUB_OUTPUT"; exit 0; }
+          DIR="$(date -u +%Y-%m-%dT%H%MZ)_run${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "dir=${DIR}" >> "$GITHUB_OUTPUT"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
+          git remote set-url origin "https://github.com/${REPO}.git"
+          extra=(-c "http.extraheader=AUTHORIZATION: basic ${AUTH}")
+          # ci-captures is a shared branch and every run pushes to it, so two
+          # runs that finish together race. Each run writes its OWN timestamped
+          # directory, so a loser has no conflict to resolve — only a stale
+          # base. Rebuild on the current tip and push again: five attempts with
+          # a jittered wait, because two runners retrying in lockstep collide
+          # again. --detach at the REMOTE tip and no -q, so a failure here is
+          # visible rather than reported as "nothing to commit" from the wrong
+          # directory.
+          publish_captures() {
+            rm -rf .tmp/cap
+            git worktree prune
+            if git "${extra[@]}" ls-remote --exit-code --heads origin ci-captures >/dev/null 2>&1; then
+              git "${extra[@]}" fetch -q origin ci-captures
+              git branch -D ci-captures >/dev/null 2>&1 || true
+              git worktree add --detach .tmp/cap origin/ci-captures || {
+                echo "captures: could not create the .tmp/cap worktree" >&2; return 1; }
+            else
+              git worktree add -q --detach .tmp/cap
+              (cd .tmp/cap && git checkout -q --orphan ci-captures && git rm -rfq . >/dev/null 2>&1 || true)
+            fi
+            mkdir -p ".tmp/cap/${DIR}"
+            cp "$OUT"/*.png ".tmp/cap/${DIR}/"
+            cp output/check.txt ".tmp/cap/${DIR}/" 2>/dev/null || true
+            (cd .tmp/cap && git add -A \
+              && { git diff --cached --quiet && { echo "captures: nothing staged for ${DIR}" >&2; exit 1; } || true; } \
+              && git commit -qm "captures: ${DIR}" \
+              && git "${extra[@]}" push -q origin "HEAD:ci-captures")
+          }
+          pushed=no
+          for attempt in 1 2 3 4 5; do
+            if publish_captures; then pushed=yes; break; fi
+            echo "captures push attempt ${attempt} lost the race; rebuilding on the current tip" >&2
+            sleep $(( attempt * 3 + RANDOM % 5 ))
+          done
+          [ "$pushed" = yes ] || { echo "could not publish the captures after 5 attempts" >&2; exit 1; }
+          {
+            echo "## Captures — [\`${DIR}\`](https://github.com/${REPO}/tree/ci-captures/${DIR})"
+            echo
+            echo "The dashboard as the runner saw it."
+            for f in "$OUT"/*.png; do
+              n=$(basename "$f" .png)
+              echo
+              echo "### ${n}"
+              echo
+              echo "![${n}](https://raw.githubusercontent.com/${REPO}/ci-captures/${DIR}/${n}.png)"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Router and dashboard logs
+        if: always()
+        run: |
+          mkdir -p output
+          docker compose -p bgp-fabric -f fabric/compose.yaml logs --no-color > output/compose.log 2>&1 || true
+
+      - name: Upload output/
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fabric-ci
+          path: output/
+          if-no-files-found: ignore
+
+      - name: Clean up
+        if: always()
+        run: ./cleanup.sh

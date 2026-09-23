@@ -1,0 +1,199 @@
+# Company fabric: four FRR routers + client0 + the live BGP dashboard
+# on their own docker bridges. Loopbacks (10.200.255.{1,2,11,12}/32)
+# are programmed by zebra from `interface lo` in each frr.conf — same
+# file as `network` and `bgp router-id`. They are BGP's; client0 still
+# pings them. The show-only agent binds the out-of-band management LAN
+# (FRR_AGENT_ADDR on 10.200.200.0/24); no router port is published.
+# The dashboard is a fifth compose service on mgmt .100 only, published on
+# 127.0.0.1:8098 — an NMS reaches routers on
+# their management interfaces, not through the traffic they route. Password:
+# copy fabric/.env.example to fabric/.env (fabric-up.sh does this if .env is
+# absent). FABRIC_BGP_PASSWORD (default lab-bgp) is rendered into
+# /etc/frr/frr.conf by the entrypoint; committed files have no secret.
+# env_file .env is optional.
+name: bgp-fabric
+
+x-router: &router
+  image: ${FABRIC_ROUTER_IMAGE:-bgp-fabric-agent:local}
+  cap_add:
+    - NET_ADMIN
+    - NET_RAW
+    - SYS_ADMIN
+  sysctls:
+    net.ipv4.ip_forward: "1"
+    net.ipv4.fib_multipath_hash_policy: "1"
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    FABRIC_BGP_PASSWORD: ${FABRIC_BGP_PASSWORD:-lab-bgp}
+  command: ["/usr/local/bin/fabric-router-start"]
+  healthcheck:
+    # bgpd AND the show-only agent. A dead agent leaves the container up and
+    # only the dashboard notices (router unreachable, no reason given), so it
+    # is part of the router's health. $$FRR_AGENT_ADDR is read in the
+    # container; the probe goes over lo, which the INPUT rules accept.
+    test: ["CMD-SHELL", "vtysh -c 'show daemons' | grep -q bgpd && wget -q -O /dev/null http://$$FRR_AGENT_ADDR/healthz"]
+    interval: 2s
+    timeout: 3s
+    retries: 20
+    start_period: 4s
+
+services:
+  edge:
+    <<: *router
+    hostname: edge
+    environment:
+      FABRIC_BGP_PASSWORD: ${FABRIC_BGP_PASSWORD:-lab-bgp}
+      FRR_AGENT_ADDR: 10.200.200.1:8080
+    volumes:
+      - ./frr/edge/frr.conf:/etc/frr/frr.conf.tmpl:ro
+      - ./frr/edge/daemons:/etc/frr/daemons:ro
+      - ./frr/edge/vtysh.conf:/etc/frr/vtysh.conf:ro
+      - ./entrypoint.sh:/usr/local/bin/fabric-entrypoint:ro
+    networks:
+      wan:
+        ipv4_address: 10.200.100.2
+      link-spine-edge:
+        ipv4_address: 10.200.1.19
+      mgmt:
+        ipv4_address: 10.200.200.1
+
+  spine:
+    <<: *router
+    hostname: spine
+    environment:
+      FABRIC_BGP_PASSWORD: ${FABRIC_BGP_PASSWORD:-lab-bgp}
+      FRR_AGENT_ADDR: 10.200.200.2:8080
+    volumes:
+      - ./frr/spine/frr.conf:/etc/frr/frr.conf.tmpl:ro
+      - ./frr/spine/daemons:/etc/frr/daemons:ro
+      - ./frr/spine/vtysh.conf:/etc/frr/vtysh.conf:ro
+      - ./entrypoint.sh:/usr/local/bin/fabric-entrypoint:ro
+    networks:
+      link-leaf1-spine:
+        ipv4_address: 10.200.1.3
+      link-leaf2-spine:
+        ipv4_address: 10.200.1.11
+      link-spine-edge:
+        ipv4_address: 10.200.1.18
+      mgmt:
+        ipv4_address: 10.200.200.2
+
+  leaf1:
+    <<: *router
+    hostname: leaf1
+    environment:
+      FABRIC_BGP_PASSWORD: ${FABRIC_BGP_PASSWORD:-lab-bgp}
+      FRR_AGENT_ADDR: 10.200.200.11:8080
+    volumes:
+      - ./frr/leaf1/frr.conf:/etc/frr/frr.conf.tmpl:ro
+      - ./frr/leaf1/daemons:/etc/frr/daemons:ro
+      - ./frr/leaf1/vtysh.conf:/etc/frr/vtysh.conf:ro
+      - ./entrypoint.sh:/usr/local/bin/fabric-entrypoint:ro
+    networks:
+      link-leaf1-spine:
+        ipv4_address: 10.200.1.2
+      mgmt:
+        ipv4_address: 10.200.200.11
+
+  leaf2:
+    <<: *router
+    hostname: leaf2
+    environment:
+      FABRIC_BGP_PASSWORD: ${FABRIC_BGP_PASSWORD:-lab-bgp}
+      FRR_AGENT_ADDR: 10.200.200.12:8080
+    volumes:
+      - ./frr/leaf2/frr.conf:/etc/frr/frr.conf.tmpl:ro
+      - ./frr/leaf2/daemons:/etc/frr/daemons:ro
+      - ./frr/leaf2/vtysh.conf:/etc/frr/vtysh.conf:ro
+      - ./entrypoint.sh:/usr/local/bin/fabric-entrypoint:ro
+    networks:
+      link-leaf2-spine:
+        ipv4_address: 10.200.1.10
+      mgmt:
+        ipv4_address: 10.200.200.12
+
+  dashboard:
+    image: ${FABRIC_DASHBOARD_IMAGE:-bgp-fabric-dashboard:local}
+    hostname: dashboard
+    environment:
+      DASHBOARD_ROUTERS: edge=http://10.200.200.1:8080,spine=http://10.200.200.2:8080,leaf1=http://10.200.200.11:8080,leaf2=http://10.200.200.12:8080
+      DASHBOARD_AS_NAMES: 65000=edge,65100=spine,65101=leaf1,65102=leaf2,65021=eg-poc1 (kube-vip),65022=eg-poc2 (MetalLB),65001=poc1 (Cilium),65002=poc2 (Cilium)
+      # What each router is FOR. The dashboard cannot infer this — a leaf with
+      # no cluster attached looks exactly like a spine — so the fabric that
+      # knows says it here. Entries are separated by semicolons because the
+      # descriptions contain commas. Read off the frr.conf files:
+      #   edge   65000: one fabric neighbour, originates 10.200.100.0/24
+      #   spine  65100: three fabric neighbours, no listen range
+      #   leafN  65101/2: one fabric neighbour plus `bgp listen range`
+      DASHBOARD_ROLES: >-
+        edge=the border. It faces the WAN 10.200.100.0/24, which it originates,
+        and client0 sits out there;
+        spine=transit only. Every leaf reaches the edge, and each other,
+        through it — it has no cluster peers of its own;
+        leaf1=where a cluster attaches. `bgp listen range 172.20.0.0/17` lets
+        any node in that range peer without being configured by hand;
+        leaf2=where a cluster attaches. The second one, so a VIP can be
+        reached even if one leaf is lost
+    ports:
+      - "127.0.0.1:${FABRIC_DASHBOARD_PORT:-8098}:8080"
+    networks:
+      mgmt:
+        ipv4_address: 10.200.200.100
+    depends_on:
+      edge:
+        condition: service_healthy
+      spine:
+        condition: service_healthy
+      leaf1:
+        condition: service_healthy
+      leaf2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8080/healthz"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+
+  client0:
+    image: ${NETSHOOT_IMAGE:-nicolaka/netshoot:v0.16}
+    hostname: client0
+    cap_add:
+      - NET_ADMIN
+    command: ["sh", "-c", "ip route replace default via 10.200.100.2 && exec sleep infinity"]
+    networks:
+      wan:
+        ipv4_address: 10.200.100.10
+    healthcheck:
+      test: ["CMD-SHELL", "ip route | grep -q 'default via 10.200.100.2'"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+      start_period: 2s
+
+networks:
+  link-leaf1-spine:
+    ipam:
+      config:
+        - subnet: 10.200.1.0/29
+  link-leaf2-spine:
+    ipam:
+      config:
+        - subnet: 10.200.1.8/29
+  link-spine-edge:
+    ipam:
+      config:
+        - subnet: 10.200.1.16/29
+  wan:
+    ipam:
+      config:
+        - subnet: 10.200.100.0/24
+  mgmt:
+    ipam:
+      config:
+        - subnet: 10.200.200.0/24
+          # Docker gives the bridge the first host address unless told otherwise;
+          # edge is .1 (measured 2026-09-20: "Address already in use" on edge).
+          gateway: 10.200.200.254
